@@ -1,17 +1,19 @@
 # SquadJS-Timer-Plugins
+Forked from https://github.com/ar1ocker/SquadJS-Timer-Plugins 
+Translated in english
 
-Плагины для SquadJS которые позволяют вам устанавливать различные таймеры с напоминанием
+Plugins for SquadJS that allow you to set various timers with reminders
 
 # timer.js
 
-Плагин который засекает заданное время и напоминает вам о таймере с введеным вами сообщением. Напоминает варнами
+A plugin that counts down a specified time and reminds you of the timer with a message you enter. Reminds with warms
 
-Например - !таймер танк 30 - плагин напомнит о спавне танка через 30 минут
+For example, !timer mbt 30 - the plugin will remind you about the MBT spawn in 30 minutes.
 
 # rally-timer.js
 
-Плагин который напомнит о новой волне на ралли за 20 секунд до её старта (чтобы успеть нажать give up)
+A plugin that will remind you about a new wave in the rally 20 seconds before it starts (so you have time to press give up).
 
-Нужно вводить то время, которое сейчас показывает ваш ралли, например если до волны 43 секунды - нужно ввести `!ралли 43`
+You need to enter the time that your rally is currently showing, for example, if there are 43 seconds until the wave, you need to enter `!rally 43`.
 
-Остальные подробности в скрипте, он простой, установка скрипта стандартная
+The rest of the details are in the script, it's simple, and the script installation is standard.
