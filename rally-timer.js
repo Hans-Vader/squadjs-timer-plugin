@@ -14,12 +14,12 @@ export default class RallyTimer extends BasePlugin {
       commands_to_start: {
         required: false,
         description: "list of commands",
-        default: ["р", "рали", "ралли", "rally", "raly", "r"],
+        default: ["r", "rally", "raly", "rally", "r"],
       },
       commands_to_stop: {
         required: false,
         description: "list of commands",
-        default: ["ср", "стопрали", "стопралли", "stoprally", "stopraly", "sr"],
+        default: ["sr", "stoprally", "stopraly", "stoprally"],
       },
       time_before_spawn: {
         required: false,
@@ -28,7 +28,7 @@ export default class RallyTimer extends BasePlugin {
       },
       max_time: {
         required: false,
-        description: "",
+        description: "maximum timer time in minutes",
         default: 120,
       },
     };
@@ -88,7 +88,7 @@ export default class RallyTimer extends BasePlugin {
       if (!isTimerSet) {
         this.warn(
           data.player.steamID,
-          `На сколько минут нужно поставить таймер (от 0 до ${this.options.max_time})? Напиши время в конце команды\nНапример: !таймер танк 30`
+          `How many minutes should we set the timer for (from 0 to ${this.options.max_time})? Write the time at the end of the command\nFor example: !timer tank 30`
         );
       }
     }
@@ -97,7 +97,7 @@ export default class RallyTimer extends BasePlugin {
   stopIntervalMessages(data) {
     if (data.player) {
       clearTimeout(this.playerTimeouts.get(data.player.steamID));
-      this.warn(data.player.steamID, "Перестали отправлять напоминание о ралли");
+      this.warn(data.player.steamID, "Stopped sending rally reminders");
     }
   }
 
@@ -111,7 +111,7 @@ export default class RallyTimer extends BasePlugin {
   activateIntervalMessagesAboutRally(delay, player) {
     this.warn(
       player.steamID,
-      `Ты получишь напоминание за ${this.options.time_before_spawn} секунд до спавна на ралли\nОстановить напоминание можно командой !sr или !ср`
+      `You will receive a reminder ${this.options.time_before_spawn} seconds before spawn at the rally\nYou can stop the reminder with the command !sr or !ср`
     );
 
     this.playerTimeouts.set(
@@ -126,13 +126,13 @@ export default class RallyTimer extends BasePlugin {
   async sendMessageAboutRally(steamID) {
     await this.warn(
       steamID,
-      `Спавн на ралли через ${this.options.time_before_spawn} секунд\nОстановить напоминание можно командой !sr или !ср`
+      `Spawn at the rally in ${this.options.time_before_spawn} seconds\nYou can stop the reminder with the command !sr or !ср`
     );
   }
-
+  
   async warn(playerID, message, repeat = 1, frequency = 5) {
     for (let i = 0; i < repeat; i++) {
-      // repeat используется для того, чтобы squad выводил все сообщения, а не скрывал их из-за того, что они одинаковые
+      // repeat is used so that squad displays all messages and does not hide them just because they are identical.
       await this.server.rcon.warn(playerID, message + "\u{00A0}".repeat(i));
 
       if (i !== repeat - 1) {
@@ -141,3 +141,4 @@ export default class RallyTimer extends BasePlugin {
     }
   }
 }
+
