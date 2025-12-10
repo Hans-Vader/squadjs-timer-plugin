@@ -9,7 +9,7 @@ Plugins for SquadJS that allow you to set various timers with reminders
 
 A plugin that counts down a specified time and reminds you of the timer with a message you enter. Reminds with warms
 
-For example, !timer mbt 30 - the plugin will remind you about the MBT spawn in 30 minutes.
+For example, `!timer mbt 30` - the plugin will remind you about the MBT spawn in 30 minutes.
 
 # rally-timer.js
 
