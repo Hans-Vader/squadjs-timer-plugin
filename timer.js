@@ -6,20 +6,20 @@ export default class Timer extends BasePlugin {
   }
 
   static get defaultEnabled() {
-    return false;
+    return true;
   }
 
   static get optionsSpecification() {
     return {
       max_time: {
         required: false,
-        description: "max time at timer in minutes",
+        description: "maximum timer time in minutes",
         default: 30,
       },
       commands: {
         required: false,
         description: "list of commands",
-        default: ["таймер", "тайм", "time", "timer", "засечь"],
+        default: ["timer", "time", "timer", "set", "time up"],
       },
     };
   }
@@ -38,9 +38,9 @@ export default class Timer extends BasePlugin {
           if (data.message) {
             const time = parseInt(data.message.trim().split(" ").slice(-1)[0]);
             if (time && time > 0 && time <= this.options.max_time) {
-              this.warn(data.player.steamID, `Через ${time} минут мы напомним тебе о: ${data.message}`);
+              this.warn(data.player.steamID, `In ${time} minutes, we will remind you about: ${data.message}`);
               setTimeout(
-                () => this.warn(data.player.steamID, `Ты просил напомнить: ${data.message}`, 2),
+                () => this.warn(data.player.steamID, `You asked to be reminded: ${data.message}`, 2),
                 time * 60 * 1000
               );
               isTimerSet = true;
@@ -50,7 +50,7 @@ export default class Timer extends BasePlugin {
           if (!isTimerSet) {
             this.warn(
               data.player.steamID,
-              `На сколько минут нужно поставить таймер (от 0 до ${this.options.max_time})? Напиши время в конце команды\nНапример: !таймер танк 30`
+              `How many minutes should we set the timer for (from 0 to ${this.options.max_time})? Write the time at the end of the command\nFor example: !timer mbt 30`
             );
           }
         }
@@ -60,7 +60,7 @@ export default class Timer extends BasePlugin {
 
   async warn(playerID, message, repeat = 1, frequency = 5) {
     for (let i = 0; i < repeat; i++) {
-      // repeat используется для того, чтобы squad выводил все сообщения, а не скрывал их из-за того, что они одинаковые
+      // 'repeat' is used so that the squad outputs all messages, not hiding them because they are identical
       await this.server.rcon.warn(playerID, message + "\u{00A0}".repeat(i));
 
       if (i !== repeat - 1) {
