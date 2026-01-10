@@ -14,7 +14,7 @@ export default class RallyTimer extends BasePlugin {
       commands_to_start: {
         required: false,
         description: "list of commands",
-        default: ["r", "rally", "raly", "rally", "r"],
+        default: ["r", "rally", "raly"],
       },
       commands_to_stop: {
         required: false,
@@ -141,4 +141,5 @@ export default class RallyTimer extends BasePlugin {
     }
   }
 }
+
 
