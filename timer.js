@@ -40,7 +40,7 @@ export default class Timer extends BasePlugin {
             if (time && time > 0 && time <= this.options.max_time) {
               this.warn(data.player.steamID, `In ${time} minutes, we will remind you about: ${data.message}`);
               setTimeout(
-                () => this.warn(data.player.steamID, `You asked to be reminded: ${data.message}`, 2),
+                () => this.warn(data.player.steamID, `You asked to be reminded: ${data.message} - 1`, 2),
                 time * 60 * 1000
               );
               isTimerSet = true;
@@ -50,7 +50,7 @@ export default class Timer extends BasePlugin {
           if (!isTimerSet) {
             this.warn(
               data.player.steamID,
-              `How many minutes should we set the timer for (from 0 to ${this.options.max_time})?\n\nWrite the time at the end of the command\nFor example: !timer mbt 30`
+              `How many minutes should we set the timer for (from 1 to ${this.options.max_time})?\n\nWrite the time at the end of the command\nFor example: !timer mbt 30`
             );
           }
         }
@@ -69,5 +69,6 @@ export default class Timer extends BasePlugin {
     }
   }
 }
+
 
 
