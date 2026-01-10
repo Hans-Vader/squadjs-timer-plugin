@@ -88,7 +88,7 @@ export default class RallyTimer extends BasePlugin {
       if (!isTimerSet) {
         this.warn(
           data.player.steamID,
-          `Write the rally time at the end of the command (from 0 to ${this.options.max_time})\For example, the rally timer shows 30 seconds, then: !rally 30`
+          `Write the rally time at the end of the command (from 0 to ${this.options.max_time})\n\nFor example, the rally timer shows 30 seconds, then: !rally 30`
         );
       }
     }
@@ -141,6 +141,7 @@ export default class RallyTimer extends BasePlugin {
     }
   }
 }
+
 
 
 
