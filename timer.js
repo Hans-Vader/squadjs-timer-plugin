@@ -38,9 +38,9 @@ export default class Timer extends BasePlugin {
           if (data.message) {
             const time = parseInt(data.message.trim().split(" ").slice(-1)[0]);
             if (time && time > 0 && time <= this.options.max_time) {
-              this.warn(data.player.steamID, `In ${time} minutes, we will remind you about: ${data.message.slice(0, -1)}`);
+              this.warn(data.player.steamID, `In ${time} minutes, we will remind you about: ${data.message.slice(0, -2)}`);
               setTimeout(
-                () => this.warn(data.player.steamID, `You asked to be reminded: ${data.message.slice(0, -1)}`, 2),
+                () => this.warn(data.player.steamID, `You asked to be reminded: ${data.message.slice(0, -2)}`, 2),
                 time * 60 * 1000
               );
               isTimerSet = true;
@@ -69,6 +69,7 @@ export default class Timer extends BasePlugin {
     }
   }
 }
+
 
 
 
