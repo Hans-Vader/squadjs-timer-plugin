@@ -19,7 +19,7 @@ export default class Timer extends BasePlugin {
       commands: {
         required: false,
         description: "list of commands",
-        default: ["timer", "time", "timer", "set", "time up"],
+        default: ["timer", "time", "timer", "set", "set timer", "settimer"],
       },
     };
   }
@@ -50,7 +50,7 @@ export default class Timer extends BasePlugin {
           if (!isTimerSet) {
             this.warn(
               data.player.steamID,
-              `How many minutes should we set the timer for (from 0 to ${this.options.max_time})? Write the time at the end of the command\nFor example: !timer mbt 30`
+              `How many minutes should we set the timer for (from 0 to ${this.options.max_time})?\n\nWrite the time at the end of the command\nFor example: !timer mbt 30`
             );
           }
         }
@@ -69,3 +69,4 @@ export default class Timer extends BasePlugin {
     }
   }
 }
+
