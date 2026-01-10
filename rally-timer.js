@@ -111,7 +111,7 @@ export default class RallyTimer extends BasePlugin {
   activateIntervalMessagesAboutRally(delay, player) {
     this.warn(
       player.steamID,
-      `You will receive a reminder ${this.options.time_before_spawn} seconds before spawn at the rally\nYou can stop the reminder with the command\n!sr or !ср`
+      `You will receive a reminder ${this.options.time_before_spawn} seconds before spawn at the rally\nYou can STOP the reminder with the command\n!sr, !rs, !rts, !stop, or !stoprally`
     );
 
     this.playerTimeouts.set(
@@ -141,6 +141,7 @@ export default class RallyTimer extends BasePlugin {
     }
   }
 }
+
 
 
 
