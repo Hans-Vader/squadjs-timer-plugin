@@ -18,3 +18,15 @@ A plugin that will remind you about a new wave in the rally 20 seconds before it
 You need to enter the time that your rally is currently showing, for example, if there are 43 seconds until the wave, you need to enter `!rally 43`.
 
 The rest of the details are in the script, it's simple, and the script installation is standard.
+
+### Example configuration
+```json
+{
+    "plugin": "RallyTimer",
+    "enabled": true,
+},
+{
+    "plugin": "Timer",
+    "enabled": true,
+},
+```
