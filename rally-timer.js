@@ -88,7 +88,7 @@ export default class RallyTimer extends BasePlugin {
       if (!isTimerSet) {
         this.warn(
           data.player.steamID,
-          `How many minutes should we set the timer for (from 0 to ${this.options.max_time})? Write the time at the end of the command\nFor example: !timer tank 30`
+          `How many minutes does the rally timer show (from 0 to ${this.options.max_time})? Write the time at the end of the command\nFor example: !rally 30\nWhen the rally timer shows 30 seconds`
         );
       }
     }
@@ -111,7 +111,7 @@ export default class RallyTimer extends BasePlugin {
   activateIntervalMessagesAboutRally(delay, player) {
     this.warn(
       player.steamID,
-      `You will receive a reminder ${this.options.time_before_spawn} seconds before spawn at the rally\nYou can stop the reminder with the command !sr or !ср`
+      `You will receive a reminder ${this.options.time_before_spawn} seconds before spawn at the rally\nYou can stop the reminder with the command\n!sr or !ср`
     );
 
     this.playerTimeouts.set(
@@ -126,7 +126,7 @@ export default class RallyTimer extends BasePlugin {
   async sendMessageAboutRally(steamID) {
     await this.warn(
       steamID,
-      `Spawn at the rally in ${this.options.time_before_spawn} seconds\nYou can stop the reminder with the command !sr or !ср`
+      `Spawn at the rally in ${this.options.time_before_spawn} seconds\nYou can stop the reminder with the command\n!sr or !ср`
     );
   }
   
@@ -141,5 +141,6 @@ export default class RallyTimer extends BasePlugin {
     }
   }
 }
+
 
 
