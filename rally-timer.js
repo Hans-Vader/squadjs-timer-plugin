@@ -126,7 +126,7 @@ export default class RallyTimer extends BasePlugin {
   async sendMessageAboutRally(steamID) {
     await this.warn(
       steamID,
-      `Spawn at the rally in ${this.options.time_before_spawn} seconds\n\nYou can STOP the reminder with the command\n!sr, !rs, !rts, !stop, or !stoprally`
+      `Rally spawn in ${this.options.time_before_spawn} seconds! (!stop)`
     );
   }
   
@@ -141,6 +141,7 @@ export default class RallyTimer extends BasePlugin {
     }
   }
 }
+
 
 
 
