@@ -141,14 +141,3 @@ export default class RallyTimer extends BasePlugin {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-
-
