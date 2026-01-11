@@ -69,8 +69,3 @@ export default class Timer extends BasePlugin {
     }
   }
 }
-
-
-
-
-
