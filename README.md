@@ -1,9 +1,8 @@
 # SquadJS-Timer-Plugins
-Forked from https://github.com/ar1ocker/SquadJS-Timer-Plugins
+Forked from https://github.com/ar1ocker/SquadJS-Timer-Plugins. Translated into English and slightly improved.
 
-Translated in english
 
-Plugins for SquadJS that allow you to set various timers with reminders
+Plugins for SquadJS that allow you to set various timers with reminders.
 
 # timer.js
 
