@@ -13,18 +13,18 @@ export default class RallyTimer extends BasePlugin {
         return {
             commands_to_start: {
                 required: false,
-                description: "list of commands",
-                default: ["r", "rally", "raly"],
+                description: "List of commands. 'rally' is always added to the list of commands to start the timer",
+                default: ["r", "rly", "raly"],
             },
             commands_to_stop: {
                 required: false,
-                description: "List of commands to start the rally timer (the first entry is used in the reminder message as a note)",
-                default: ["sr", "stop", "stoprally", "stopraly", "rs", "rts"],
+                description: "List of commands to start the rally timer (the first entry is used in the reminder message as a note!)",
+                default: ["sr", "stop", "rs", "rts"],
             },
             commands_to_pause: {
                 required: false,
-                description: "List of commands to pause the rally timer (the first entry is used in the reminder message as a note)",
-                default: ["pr", "pause", "pauserally", "rp", "rtp"],
+                description: "List of commands to pause the rally timer (the first entry is used in the reminder message as a note!)",
+                default: ["pr", "pause", "rp", "rtp"],
             },
             time_before_spawn: {
                 required: false,
@@ -42,7 +42,7 @@ export default class RallyTimer extends BasePlugin {
     constructor(server, options, connectors) {
         super(server, options, connectors);
 
-        this.playerTimeouts = new Map();
+        this.playerTimer = new Map();
         this.rallyTimerPaused = new Map();
         this.warn = this.warn.bind(this);
         this.startIntervalMessages = this.startIntervalMessages.bind(this);
@@ -54,7 +54,9 @@ export default class RallyTimer extends BasePlugin {
     }
 
     async mount() {
-        for (const command of this.options.commands_to_start) {
+        let commandsToStart = this.options.commands_to_start;
+        commandsToStart.push('rally');
+        for (const command of commandsToStart) {
             this.server.on(`CHAT_COMMAND:${command}`, (data) => {
                 this.startIntervalMessages(data);
             });
@@ -62,7 +64,13 @@ export default class RallyTimer extends BasePlugin {
 
         for (const command of this.options.commands_to_stop) {
             this.server.on(`CHAT_COMMAND:${command}`, (data) => {
-                this.stopIntervalMessages(data);
+                this.stopIntervalMessages(data.player.steamID);
+            });
+        }
+
+        for (const command of this.options.commands_to_pause) {
+            this.server.on(`CHAT_COMMAND:${command}`, (data) => {
+                this.togglePauseIntervalMessages(data.player.steamID);
             });
         }
 
@@ -71,103 +79,133 @@ export default class RallyTimer extends BasePlugin {
         });
     }
 
-    startIntervalMessages(data) {
+    async startIntervalMessages(data) {
         if (data.player) {
-            let isTimerSet = false;
+            // // Stop the timer
+            // if (this.options.commands_to_stop.includes(data.message) && this.playerTimer.has(data.player.steamID)) {
+            //     this.stopIntervalMessages(data.player.steamID);
+            //     return;
+            // }
+            const message = data.message.toLowerCase();
 
-            if (this.options.commands_to_pause.includes(data.message)) {
-                // Toggle pause state
-                if (this.rallyTimerPaused.get(data.player.steamID)) {
-                    this.warn(
-                        data.player.steamID,
-                        `Rally reminder RESUMED.`
-                    );
-                    return;
-                }
-
-                // Pause the timer
-                this.rallyTimerPaused.set(data.player.steamID, true);
-                this.warn(
-                    data.player.steamID,
-                    `Rally reminder PAUSED. To resume, just use the command again without time.`
-                );
-                return;
-            }
+            // split by spaces and remove empty entries
+            const commandSplit = message.trim().split(/\s+/).filter(Boolean);
 
             // Set new timer
-            if (data.message) {
-                const rallyTime = parseInt(data.message);
+            let isTimerSet = false;
+            if (commandSplit) {
+                const rallyTime = parseInt(commandSplit[0]);
                 if (rallyTime && rallyTime > 0 && rallyTime <= this.options.max_time) {
                     // clear old timeout
-                    clearTimeout(this.playerTimeouts.get(data.player.steamID));
+                    clearTimeout(this.playerTimer.get(data.player.steamID));
                     this.rallyTimerPaused.delete(data.player.steamID);
 
-                    const firstMessageDelay =
-                        rallyTime > this.options.time_before_spawn
-                            ? (rallyTime - this.options.time_before_spawn) * 1000
-                            : (60 - this.options.time_before_spawn + rallyTime) * 1000;
+                    let timeBeforeSpawn = this.options.time_before_spawn;
+                    const customTimeBeforeSpawn = parseInt(commandSplit[1]);
+                    if (customTimeBeforeSpawn && customTimeBeforeSpawn > 0) {
+                        timeBeforeSpawn = customTimeBeforeSpawn;
+                    }
 
-                    this.activateIntervalMessagesAboutRally(firstMessageDelay, data.player);
+                    const firstMessageDelay =
+                        rallyTime > timeBeforeSpawn
+                            ? (rallyTime - timeBeforeSpawn) * 1000
+                            : (60 - timeBeforeSpawn + rallyTime) * 1000;
+
+                    this.activateIntervalMessagesAboutRally(firstMessageDelay, data.player, timeBeforeSpawn);
 
                     isTimerSet = true;
                 }
             }
 
-            // Resume from pause, if command used without time
-            if (!isTimerSet && this.rallyTimerPaused.has(data.player.steamID)) {
-                this.rallyTimerPaused.delete(data.player.steamID);
-                this.warn(
-                    data.player.steamID,
-                    `Rally reminder RESUMED.`
-                );
+            // Toggle timer, if command used without time and timer is already set
+            if (!isTimerSet && this.playerTimer.has(data.player.steamID)) {
+                this.togglePauseIntervalMessages(data.player.steamID);
                 return;
             }
 
             if (!isTimerSet) {
                 this.warn(
                     data.player.steamID,
-                    `Write the rally time at the end of the command (from 0 to ${this.options.max_time})\n\nFor example, the rally timer shows 30 seconds, then: !rally 30`
+                    `Enter the CURRENT rally time (from 0 to ${this.options.max_time})\n\nFor example:\nTimer shows 30 seconds, then: !rally 30`
+                );
+                await new Promise((resolve) => setTimeout(resolve, 6 * 1000));
+                this.warn(
+                    data.player.steamID,
+                    `Custom reminder time. For example:\n!rally 30 25\nThis will set a reminder 25 seconds before spawn.`
                 );
             }
         }
     }
 
-    stopIntervalMessages(data) {
-        if (data.player) {
-            clearTimeout(this.playerTimeouts.get(data.player.steamID));
-            this.warn(data.player.steamID, "Stopped sending rally reminders");
+    stopIntervalMessages(steamID) {
+        if (steamID) {
+            clearTimeout(this.playerTimer.get(steamID));
+            this.playerTimer.delete(steamID);
+            this.rallyTimerPaused.delete(steamID);
+            this.warn(steamID, "Stopped sending rally reminders");
+        }
+    }
+
+    togglePauseIntervalMessages(steamID) {
+        // Resume from pause, if player has an active timer and paused the timer before
+        if (this.playerTimer.has(steamID) && this.rallyTimerPaused.has(steamID)) {
+            this.rallyTimerPaused.delete(steamID);
+            this.warn(
+                steamID,
+                `Rally reminder RESUMED.`
+            );
+        }
+        // Pause the timer, if player has an active timer and did not pause the timer before
+        else if (this.playerTimer.has(steamID) && !this.rallyTimerPaused.has(steamID)) {
+            this.rallyTimerPaused.set(steamID, true);
+            this.warn(
+                steamID,
+                `Rally reminder PAUSED!\nTo resume, just use the command again.`
+            );
+        } else {
+            this.warn(
+                steamID,
+                `You don't have an active rally reminder to pause or resume.`
+            );
         }
     }
 
     clearAllTimeouts() {
-        for (const timeout of this.playerTimeouts.values()) {
+        for (const timeout of this.playerTimer.values()) {
             clearTimeout(timeout);
         }
-        this.playerTimeouts.clear();
+        this.playerTimer.clear();
         this.rallyTimerPaused.clear();
     }
 
-    activateIntervalMessagesAboutRally(delay, player) {
+    activateIntervalMessagesAboutRally(delay, player, timeBeforeSpawn) {
         let commandPausePrefix = this.getCommandPausePrefixString();
         let commandStopPrefix = this.getCommandStopPrefixString();
 
         this.warn(
             player.steamID,
-            `You will receive a reminder ${this.options.time_before_spawn} seconds before spawn at the rally\n\n
-            \nYou can PAUSE the reminder with\n${commandPausePrefix}
-            \nYou can STOP the reminder with\n${commandStopPrefix}`
+            `Get a reminder ${timeBeforeSpawn} seconds before spawn at the rally.
+            \nPAUSE with:\n${commandPausePrefix}
+            \nSTOP with:\n${commandStopPrefix}`
         );
 
-        this.playerTimeouts.set(
+
+        this.playerTimer.set(
             player.steamID,
             setTimeout(() => {
-                this.sendMessageAboutRally(player.steamID);
-                this.playerTimeouts.set(player.steamID, setInterval(this.sendMessageAboutRally, 60 * 1000, player.steamID));
+                this.sendMessageAboutRally(player.steamID, timeBeforeSpawn);
+
+                const intervalId = setInterval(
+                    () => this.sendMessageAboutRally(player.steamID, timeBeforeSpawn),
+                    60 * 1000
+                );
+
+                this.playerTimer.set(player.steamID, intervalId);
             }, delay)
         );
     }
 
-    async sendMessageAboutRally(steamID) {
+    async sendMessageAboutRally(steamID, timeBeforeSpawn) {
         // Do not send message if paused
         if (this.rallyTimerPaused.get(steamID)) {
             return;
@@ -175,7 +213,7 @@ export default class RallyTimer extends BasePlugin {
 
         await this.warn(
             steamID,
-            `Rally spawn in ${this.options.time_before_spawn} seconds! (` + this.options.commands_to_stop[0] + ` ` + this.options.commands_to_pause[0] + ` )`
+            `Rally spawn in ${timeBeforeSpawn} seconds! (!` + this.options.commands_to_stop[0] + ` or !` + this.options.commands_to_pause[0] + `)`
         );
     }
 
@@ -190,15 +228,11 @@ export default class RallyTimer extends BasePlugin {
         }
     }
 
-    getCommandStartPrefixString() {
-        return '!' + this.options.commands_to_start.join(', ');
-    }
-
     getCommandStopPrefixString() {
-        return '!' + this.options.commands_to_stop.join(', ');
+        return '!' + this.options.commands_to_stop.join(', !');
     }
 
     getCommandPausePrefixString() {
-        return '!' + this.options.commands_to_pause.join(', ');
+        return '!' + this.options.commands_to_pause.join(', !');
     }
 }
