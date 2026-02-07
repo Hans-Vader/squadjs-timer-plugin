@@ -15,26 +15,18 @@ export default class RallyTimer extends BasePlugin {
                 required: false,
                 description: "List of commands. 'rally' is always added to the list of commands to start the timer",
                 default: ["r", "rly", "raly"],
-            },
-            commands_to_stop: {
+            }, commands_to_stop: {
                 required: false,
                 description: "List of commands to start the rally timer (the first entry is used in the reminder message as a note!)",
                 default: ["sr", "stop", "rs", "rts"],
-            },
-            commands_to_pause: {
+            }, commands_to_pause: {
                 required: false,
                 description: "List of commands to pause the rally timer (the first entry is used in the reminder message as a note!)",
                 default: ["pr", "pause", "rp", "rtp"],
-            },
-            time_before_spawn: {
-                required: false,
-                description: "Time before spawn at rally point",
-                default: 20,
-            },
-            max_time: {
-                required: false,
-                description: "Maximum timer time in minutes",
-                default: 120
+            }, time_before_spawn: {
+                required: false, description: "Time before spawn at rally point", default: 20,
+            }, max_time: {
+                required: false, description: "Maximum timer time in minutes", default: 120
             },
         };
     }
@@ -106,10 +98,7 @@ export default class RallyTimer extends BasePlugin {
                         timeBeforeSpawn = customTimeBeforeSpawn;
                     }
 
-                    const firstMessageDelay =
-                        rallyTime > timeBeforeSpawn
-                            ? (rallyTime - timeBeforeSpawn) * 1000
-                            : (60 - timeBeforeSpawn + rallyTime) * 1000;
+                    const firstMessageDelay = rallyTime > timeBeforeSpawn ? (rallyTime - timeBeforeSpawn) * 1000 : (60 - timeBeforeSpawn + rallyTime) * 1000;
 
                     this.activateIntervalMessagesAboutRally(firstMessageDelay, data.player, timeBeforeSpawn);
 
@@ -124,15 +113,9 @@ export default class RallyTimer extends BasePlugin {
             }
 
             if (!isTimerSet) {
-                this.warn(
-                    data.player.steamID,
-                    `Enter the CURRENT rally time (from 0 to ${this.options.max_time})\n\nFor example:\nTimer shows 30 seconds, then: !rally 30`
-                );
+                this.warn(data.player.steamID, `Enter the CURRENT rally time (from 0 to ${this.options.max_time})\n\nFor example:\nTimer shows 30 seconds, then: !rally 30`);
                 await new Promise((resolve) => setTimeout(resolve, 6 * 1000));
-                this.warn(
-                    data.player.steamID,
-                    `Custom reminder time. For example:\n!rally 30 25\nThis will set a reminder 25 seconds before spawn.`
-                );
+                this.warn(data.player.steamID, `Custom reminder time. For example:\n!rally 30 25\nThis will set a reminder 25 seconds before spawn.`);
             }
         }
     }
@@ -150,23 +133,14 @@ export default class RallyTimer extends BasePlugin {
         // Resume from pause, if player has an active timer and paused the timer before
         if (this.playerTimer.has(steamID) && this.rallyTimerPaused.has(steamID)) {
             this.rallyTimerPaused.delete(steamID);
-            this.warn(
-                steamID,
-                `Rally reminder RESUMED.`
-            );
+            this.warn(steamID, `Rally reminder RESUMED.`);
         }
         // Pause the timer, if player has an active timer and did not pause the timer before
         else if (this.playerTimer.has(steamID) && !this.rallyTimerPaused.has(steamID)) {
             this.rallyTimerPaused.set(steamID, true);
-            this.warn(
-                steamID,
-                `Rally reminder PAUSED!\nTo resume, just use the command again.`
-            );
+            this.warn(steamID, `Rally reminder PAUSED!\nTo resume, just use the command again.`);
         } else {
-            this.warn(
-                steamID,
-                `You don't have an active rally reminder to pause or resume.`
-            );
+            this.warn(steamID, `You don't have an active rally reminder to pause or resume.`);
         }
     }
 
@@ -182,27 +156,17 @@ export default class RallyTimer extends BasePlugin {
         let commandPausePrefix = this.getCommandPausePrefixString();
         let commandStopPrefix = this.getCommandStopPrefixString();
 
-        this.warn(
-            player.steamID,
-            `Get a reminder ${timeBeforeSpawn} seconds before spawn at the rally.
+        this.warn(player.steamID, `Get a reminder ${timeBeforeSpawn} seconds before spawn at the rally.
             \nPAUSE with:\n${commandPausePrefix}
-            \nSTOP with:\n${commandStopPrefix}`
-        );
+            \nSTOP with:\n${commandStopPrefix}`);
 
+        this.playerTimer.set(player.steamID, setTimeout(() => {
+            this.sendMessageAboutRally(player.steamID, timeBeforeSpawn);
 
-        this.playerTimer.set(
-            player.steamID,
-            setTimeout(() => {
-                this.sendMessageAboutRally(player.steamID, timeBeforeSpawn);
+            const intervalId = setInterval(() => this.sendMessageAboutRally(player.steamID, timeBeforeSpawn), 60 * 1000);
 
-                const intervalId = setInterval(
-                    () => this.sendMessageAboutRally(player.steamID, timeBeforeSpawn),
-                    60 * 1000
-                );
-
-                this.playerTimer.set(player.steamID, intervalId);
-            }, delay)
-        );
+            this.playerTimer.set(player.steamID, intervalId);
+        }, delay));
     }
 
     async sendMessageAboutRally(steamID, timeBeforeSpawn) {
