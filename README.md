@@ -1,6 +1,4 @@
 # SquadJS-Timer-Plugins
-Forked from https://github.com/ar1ocker/SquadJS-Timer-Plugins
-
 Plugins for SquadJS that allow you to set various timers with reminders.
 
 # timer.js
@@ -34,31 +32,11 @@ The rest of the details are in the script, it's simple, and the script installat
 {
     "plugin": "RallyTimer",
     "enabled": true,
-    "commands_to_start": {
-        "required": false,
-        "description": "List of commands. 'rally' is always added to the list of commands to start the timer",
-        "default": ["r", "rly", "raly"]
-    },
-    "commands_to_stop": {
-        "required": false,
-        "description": "List of commands to start the rally timer (the first entry is used in the reminder message as a note!)",
-        "default": ["sr", "stop", "rs", "rts"]
-    },
-    "commands_to_pause": {
-        "required": false,
-        "description": "List of commands to pause the rally timer (the first entry is used in the reminder message as a note!)",
-        "default": ["pr", "pause", "rp", "rtp"]
-    },
-    "time_before_spawn": {
-        "required": false,
-        "description": "Default time before spawn at rally point",
-        "default": 20
-    },
-    "max_time": {
-        "required": false,
-        "description": "Maximum timer time in minutes",
-        "default": 120
-    }
+    "commands_to_start": ["r", "rly", "raly"],
+    "commands_to_stop": ["sr", "stop", "rs", "rts"],
+    "commands_to_pause": ["pr", "pause", "rp", "rtp"],
+    "time_before_spawn": 20,
+    "max_time": 120
 },
 {
     "plugin": "Timer",
