@@ -73,11 +73,6 @@ export default class RallyTimer extends BasePlugin {
 
     async startIntervalMessages(data) {
         if (data.player) {
-            // // Stop the timer
-            // if (this.options.commands_to_stop.includes(data.message) && this.playerTimer.has(data.player.steamID)) {
-            //     this.stopIntervalMessages(data.player.steamID);
-            //     return;
-            // }
             const message = data.message.toLowerCase();
 
             // split by spaces and remove empty entries
