@@ -24,7 +24,7 @@ export default class RallyTimer extends BasePlugin {
                 description: "List of commands to pause the rally timer (the first entry is used in the reminder message as a note!)",
                 default: ["pr", "pause", "rp", "rtp"],
             }, time_before_spawn: {
-                required: false, description: "Time before spawn at rally point", default: 20,
+                required: false, description: "Default time before spawn at rally point", default: 20,
             }, max_time: {
                 required: false, description: "Maximum timer time in minutes", default: 120
             },
