@@ -1,6 +1,5 @@
 # SquadJS-Timer-Plugins
-Forked from https://github.com/ar1ocker/SquadJS-Timer-Plugins. Translated into English and slightly improved.
-
+Forked from https://github.com/ar1ocker/SquadJS-Timer-Plugins
 
 Plugins for SquadJS that allow you to set various timers with reminders.
 
@@ -18,14 +17,61 @@ You need to enter the time that your rally is currently showing, for example, if
 
 The rest of the details are in the script, it's simple, and the script installation is standard.
 
-### Example configuration
-```json
+## Usage
+
+- For a timer: `!timer <message> <time in minutes>` (e.g., `!timer mbt 30`)
+- For a rally reminder: `!rally <current rally time in seconds>` (e.g., `!rally 43` with default reminder time)
+- For a rally reminder with a custom remind time: `!rally <current rally time in seconds> <time in seconds>` (e.g., `!rally 43 25`)
+- For a squad-wide rally reminder: `!rally <current rally time in seconds> sq` (e.g., `!rally 43 sq` or `!rally 43 squad`)
+    - All squad members receive an invitation to opt in to the rally reminder
+    - Accept with `!rtyes` or `!rally yes`
+    - Opt out permanently (until server restart) with `!rally optout`
+    - Opted-out players will not receive any future squad rally invitations
+- You can pause / resume the rally reminder in various ways, for example:
+    - `!pr`
+    - `!pause`
+    - `!rally`
+    - `!rally pause`
+
+## Configuration
+
+```jsonc
 {
     "plugin": "RallyTimer",
     "enabled": true,
+    "commands_to_start": {
+        "required": false,
+        "description": "List of commands. 'rally' is always added to the list of commands to start the timer",
+        "default": ["r", "rly", "raly"]
+    },
+    "commands_to_stop": {
+        "required": false,
+        "description": "List of commands to start the rally timer (the first entry is used in the reminder message as a note!)",
+        "default": ["sr", "stop", "rs", "rts"]
+    },
+    "commands_to_pause": {
+        "required": false,
+        "description": "List of commands to pause the rally timer (the first entry is used in the reminder message as a note!)",
+        "default": ["pr", "pause", "rp", "rtp"]
+    },
+    "commands_to_accept_squad": {
+        "required": false,
+        "description": "List of dedicated commands to accept a squad rally invitation",
+        "default": ["rtyes"]
+    },
+    "time_before_spawn": {
+        "required": false,
+        "description": "Default time before spawn at rally point",
+        "default": 20
+    },
+    "max_time": {
+        "required": false,
+        "description": "Maximum timer time in minutes",
+        "default": 120
+    }
 },
 {
     "plugin": "Timer",
-    "enabled": true,
-},
+    "enabled": true
+}
 ```
