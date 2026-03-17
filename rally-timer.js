@@ -28,7 +28,7 @@ export default class RallyTimer extends BasePlugin {
             }, commands_to_accept_squad: {
                 required: false,
                 description: "List of dedicated commands to accept a squad rally invitation",
-                default: ["rtyes"],
+                default: ["yes", "y", "yesrt", "rtyes", "accept"],
             }, max_time: {
                 required: false, description: "Maximum timer time in minutes", default: 120
             },
@@ -142,6 +142,12 @@ export default class RallyTimer extends BasePlugin {
                 return;
             }
 
+            // Accept pending squad invite if command used without arguments
+            if (!isTimerSet && this.pendingSquadInvites.has(data.player.steamID)) {
+                this.handleAcceptInvite(data.player);
+                return;
+            }
+
             if (!isTimerSet) {
                 this.warn(data.player.steamID, `Enter the CURRENT rally time (from 0 to ${this.options.max_time})\n\nFor example:\nTimer shows 30 seconds, then: !rally 30\nSquad rally: !rally 30 sq`);
                 await new Promise((resolve) => setTimeout(resolve, 6 * 1000));
@@ -162,12 +168,20 @@ export default class RallyTimer extends BasePlugin {
     togglePauseIntervalMessages(steamID) {
         // Resume from pause, if player has an active timer and paused the timer before
         if (this.playerTimer.has(steamID) && this.rallyTimerPaused.has(steamID)) {
+            const pauseData = this.rallyTimerPaused.get(steamID);
             this.rallyTimerPaused.delete(steamID);
-            this.warn(steamID, `Rally reminder RESUMED.`);
+
+            if (pauseData.lastTickAt) {
+                const timeSinceLastTick = (Date.now() - pauseData.lastTickAt) / 1000;
+                const timeUntilSpawn = Math.round(60 - timeSinceLastTick + pauseData.timeBeforeSpawn);
+                this.warn(steamID, `Rally reminder RESUMED.\nNext rally spawn in ~${timeUntilSpawn} seconds.`);
+            } else {
+                this.warn(steamID, `Rally reminder RESUMED.`);
+            }
         }
         // Pause the timer, if player has an active timer and did not pause the timer before
         else if (this.playerTimer.has(steamID) && !this.rallyTimerPaused.has(steamID)) {
-            this.rallyTimerPaused.set(steamID, true);
+            this.rallyTimerPaused.set(steamID, {});
             this.warn(steamID, `Rally reminder PAUSED!\nTo resume, just use the command again.`);
         } else {
             this.warn(steamID, `You don't have an active rally reminder to pause or resume.`);
@@ -293,8 +307,11 @@ export default class RallyTimer extends BasePlugin {
     }
 
     async sendMessageAboutRally(steamID, timeBeforeSpawn) {
-        // Do not send message if paused
-        if (this.rallyTimerPaused.get(steamID)) {
+        // Do not send message if paused, but track timing so resume can show time until spawn
+        const pauseData = this.rallyTimerPaused.get(steamID);
+        if (pauseData) {
+            pauseData.timeBeforeSpawn = timeBeforeSpawn;
+            pauseData.lastTickAt = Date.now();
             return;
         }
 
