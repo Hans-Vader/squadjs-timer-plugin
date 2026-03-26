@@ -19,10 +19,6 @@ export default class RallyTimer extends BasePlugin {
                 required: false,
                 description: "List of commands to start the rally timer (the first entry is used in the reminder message as a note!)",
                 default: ["sr", "stop", "rs", "rts"],
-            }, commands_to_pause: {
-                required: false,
-                description: "List of commands to pause the rally timer (the first entry is used in the reminder message as a note!)",
-                default: ["pr", "pause", "rp", "rtp"],
             }, time_before_spawn: {
                 required: false, description: "Default time before spawn at rally point", default: 20,
             }, commands_to_accept_squad: {
@@ -52,6 +48,11 @@ export default class RallyTimer extends BasePlugin {
         this.handleSquadRally = this.handleSquadRally.bind(this);
         this.handleAcceptInvite = this.handleAcceptInvite.bind(this);
         this.handleOptOut = this.handleOptOut.bind(this);
+        this.onPlayerWounded = this.onPlayerWounded.bind(this);
+        this.onPlayerAlive = this.onPlayerAlive.bind(this);
+        this.onPlayerRevived = this.onPlayerRevived.bind(this);
+        this.onPlayerDied = this.onPlayerDied.bind(this);
+        this.onPlayerDamaged = this.onPlayerDamaged.bind(this);
     }
 
     async mount() {
@@ -69,17 +70,17 @@ export default class RallyTimer extends BasePlugin {
             });
         }
 
-        for (const command of this.options.commands_to_pause) {
-            this.server.on(`CHAT_COMMAND:${command}`, (data) => {
-                this.togglePauseIntervalMessages(data.player.steamID);
-            });
-        }
-
         for (const command of this.options.commands_to_accept_squad) {
             this.server.on(`CHAT_COMMAND:${command}`, (data) => {
                 this.handleAcceptInvite(data.player);
             });
         }
+
+        this.server.on("PLAYER_WOUNDED", (data) => this.onPlayerWounded(data));
+        this.server.on("TEAMKILL", (data) => this.onPlayerWounded(data));
+        this.server.on("PLAYER_DIED", (data) => this.onPlayerDied(data));
+        this.server.on("PLAYER_REVIVED", (data) => this.onPlayerRevived(data));
+        this.server.on("PLAYER_DAMAGED", (data) => this.onPlayerDamaged(data));
 
         this.server.on("ROUND_ENDED", () => {
             this.clearAllTimeouts();
@@ -136,12 +137,6 @@ export default class RallyTimer extends BasePlugin {
                 }
             }
 
-            // Toggle timer, if command used without time and timer is already set
-            if (!isTimerSet && this.playerTimer.has(data.player.steamID)) {
-                this.togglePauseIntervalMessages(data.player.steamID);
-                return;
-            }
-
             // Accept pending squad invite if command used without arguments
             if (!isTimerSet && this.pendingSquadInvites.has(data.player.steamID)) {
                 this.handleAcceptInvite(data.player);
@@ -151,7 +146,7 @@ export default class RallyTimer extends BasePlugin {
             if (!isTimerSet) {
                 this.warn(data.player.steamID, `Enter the CURRENT rally time (from 0 to ${this.options.max_time})\n\nFor example:\nTimer shows 30 seconds, then: !rally 30\nSquad rally: !rally 30 sq`);
                 await new Promise((resolve) => setTimeout(resolve, 6 * 1000));
-                this.warn(data.player.steamID, `Custom reminder time. For example:\n!rally 30 25\nThis will set a reminder 25 seconds before spawn.`);
+                this.warn(data.player.steamID, `Custom reminder time. For example:\n!rally 30 25\nThis will set a reminder 25 seconds before spawn.\nWarnings appear automatically when you're wounded.`);
             }
         }
     }
@@ -165,26 +160,45 @@ export default class RallyTimer extends BasePlugin {
         }
     }
 
-    togglePauseIntervalMessages(steamID) {
-        // Resume from pause, if player has an active timer and paused the timer before
-        if (this.playerTimer.has(steamID) && this.rallyTimerPaused.has(steamID)) {
-            const pauseData = this.rallyTimerPaused.get(steamID);
-            this.rallyTimerPaused.delete(steamID);
+    onPlayerWounded(data) {
+        const steamID = data.victim?.steamID;
+        if (!steamID || !this.playerTimer.has(steamID)) return;
+        if (!this.rallyTimerPaused.has(steamID)) return; // already wounded/unpaused
 
-            if (pauseData.lastTickAt) {
-                const timeSinceLastTick = (Date.now() - pauseData.lastTickAt) / 1000;
-                const timeUntilSpawn = Math.round(60 - timeSinceLastTick + pauseData.timeBeforeSpawn);
-                this.warn(steamID, `Rally reminder RESUMED.\nNext rally spawn in ~${timeUntilSpawn} seconds.`);
-            } else {
-                this.warn(steamID, `Rally reminder RESUMED.`);
-            }
+        const pauseData = this.rallyTimerPaused.get(steamID);
+        this.rallyTimerPaused.delete(steamID);
+
+        if (pauseData.lastTickAt) {
+            const timeSinceLastTick = (Date.now() - pauseData.lastTickAt) / 1000;
+            let timeUntilSpawn = Math.round(pauseData.timeBeforeSpawn - timeSinceLastTick);
+            if (timeUntilSpawn < 0) timeUntilSpawn += 60;
+            this.warn(steamID, `Rally spawn in ~${timeUntilSpawn} seconds!`);
         }
-        // Pause the timer, if player has an active timer and did not pause the timer before
-        else if (this.playerTimer.has(steamID) && !this.rallyTimerPaused.has(steamID)) {
-            this.rallyTimerPaused.set(steamID, {});
-            this.warn(steamID, `Rally reminder PAUSED!\nTo resume, just use the command again.`);
-        } else {
-            this.warn(steamID, `You don't have an active rally reminder to pause or resume.`);
+    }
+
+    onPlayerAlive(steamID) {
+        if (!steamID || !this.playerTimer.has(steamID)) return;
+        if (this.rallyTimerPaused.has(steamID)) return; // already alive/paused
+
+        this.rallyTimerPaused.set(steamID, {});
+    }
+
+    onPlayerRevived(data) {
+        this.onPlayerAlive(data.victim?.steamID);
+        this.onPlayerAlive(data.reviver?.steamID);
+    }
+
+    onPlayerDied(data) {
+        this.onPlayerAlive(data.victim?.steamID);
+    }
+
+    onPlayerDamaged(data) {
+        if (data.attackerSteamID) {
+            this.onPlayerAlive(data.attackerSteamID);
+        }
+        const victim = this.server.players.find(p => p.name === data.victimName);
+        if (victim) {
+            this.onPlayerAlive(victim.steamID);
         }
     }
 
@@ -287,15 +301,17 @@ export default class RallyTimer extends BasePlugin {
     }
 
     activateIntervalMessagesAboutRally(delay, player, timeBeforeSpawn) {
-        let commandPausePrefix = this.getCommandPausePrefixString();
         let commandStopPrefix = this.getCommandStopPrefixString();
 
         this.warn(
             player.steamID,
-            `Get a reminder ${timeBeforeSpawn} seconds before spawn at the rally.
-            \nPAUSE with: ${commandPausePrefix}
-            \nSTOP with: ${commandStopPrefix}`
+            `Rally reminder active (${timeBeforeSpawn}s before spawn).` +
+            `\nWarnings appear when you're wounded.` +
+            `\nSTOP with: ${commandStopPrefix}`
         );
+
+        // Start in alive/suppressed state — messages only sent when wounded
+        this.rallyTimerPaused.set(player.steamID, {});
 
         this.playerTimer.set(player.steamID, setTimeout(() => {
             this.sendMessageAboutRally(player.steamID, timeBeforeSpawn);
@@ -307,7 +323,7 @@ export default class RallyTimer extends BasePlugin {
     }
 
     async sendMessageAboutRally(steamID, timeBeforeSpawn) {
-        // Do not send message if paused, but track timing so resume can show time until spawn
+        // Do not send message if alive (paused), but track timing so wound event can show time until spawn
         const pauseData = this.rallyTimerPaused.get(steamID);
         if (pauseData) {
             pauseData.timeBeforeSpawn = timeBeforeSpawn;
@@ -317,7 +333,7 @@ export default class RallyTimer extends BasePlugin {
 
         await this.warn(
             steamID,
-            `Rally spawn in ${timeBeforeSpawn} seconds! (!` + this.options.commands_to_stop[0] + ` or !` + this.options.commands_to_pause[0] + `)`
+            `Rally spawn in ${timeBeforeSpawn} seconds! (!` + this.options.commands_to_stop[0] + ` to stop)`
         );
     }
 
@@ -336,7 +352,4 @@ export default class RallyTimer extends BasePlugin {
         return '!' + this.options.commands_to_stop.join(', !');
     }
 
-    getCommandPausePrefixString() {
-        return '!' + this.options.commands_to_pause.join(', !');
-    }
 }
