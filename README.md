@@ -32,6 +32,8 @@ The rest of the details are in the script, it's simple, and the script installat
     - `!pause`
     - `!rally`
     - `!rally pause`
+- For checking time to next rally: `!rc` (or `!rcheck`, `!rallycheck`)
+- Rally spawn cycle length is auto-detected: 60 seconds on vanilla layers, 45 seconds on SuperMod layers (raw layer id starts with `SU_`). You can override this with the `rally_interval_seconds` option.
 
 ## Configuration
 
@@ -59,6 +61,11 @@ The rest of the details are in the script, it's simple, and the script installat
         "description": "List of dedicated commands to accept a squad rally invitation",
         "default": ["rtyes"]
     },
+    "commands_to_check": {
+        "required": false,
+        "description": "List of commands to check the time remaining until the next rally spawn",
+        "default": ["rc", "rcheck", "rallycheck"]
+    },
     "time_before_spawn": {
         "required": false,
         "description": "Default time before spawn at rally point",
@@ -68,6 +75,11 @@ The rest of the details are in the script, it's simple, and the script installat
         "required": false,
         "description": "Maximum timer time in minutes",
         "default": 120
+    },
+    "rally_interval_seconds": {
+        "required": false,
+        "description": "Rally spawn cycle length in seconds. Leave unset to auto-detect (60s vanilla, 45s on SuperMod layers prefixed with SU_).",
+        "default": null
     }
 },
 {

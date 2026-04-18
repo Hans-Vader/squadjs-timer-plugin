@@ -25,8 +25,16 @@ export default class RallyTimer extends BasePlugin {
                 required: false,
                 description: "List of dedicated commands to accept a squad rally invitation",
                 default: ["yes", "y", "yesrt", "rtyes", "accept"],
+            }, commands_to_check: {
+                required: false,
+                description: "List of commands to check the time remaining until the next rally spawn",
+                default: ["rc", "rtcheck", "rcheck", "rallycheck"],
             }, max_time: {
                 required: false, description: "Maximum timer time in minutes", default: 120
+            }, rally_interval_seconds: {
+                required: false,
+                description: "Rally spawn cycle length in seconds. Leave unset to auto-detect (60s vanilla, 45s on SuperMod layers prefixed with SU_).",
+                default: null,
             },
         };
     }
@@ -38,6 +46,7 @@ export default class RallyTimer extends BasePlugin {
         this.rallyTimerPaused = new Map();
         this.optedOutPlayers = new Set();
         this.pendingSquadInvites = new Map();
+        this.nextSpawnAt = new Map();
 
         this.warn = this.warn.bind(this);
         this.startIntervalMessages = this.startIntervalMessages.bind(this);
@@ -48,6 +57,8 @@ export default class RallyTimer extends BasePlugin {
         this.handleSquadRally = this.handleSquadRally.bind(this);
         this.handleAcceptInvite = this.handleAcceptInvite.bind(this);
         this.handleOptOut = this.handleOptOut.bind(this);
+        this.handleCheckTime = this.handleCheckTime.bind(this);
+        this.getRallyIntervalSeconds = this.getRallyIntervalSeconds.bind(this);
         this.onPlayerWounded = this.onPlayerWounded.bind(this);
         this.onPlayerAlive = this.onPlayerAlive.bind(this);
         this.onPlayerRevived = this.onPlayerRevived.bind(this);
@@ -73,6 +84,12 @@ export default class RallyTimer extends BasePlugin {
         for (const command of this.options.commands_to_accept_squad) {
             this.server.on(`CHAT_COMMAND:${command}`, (data) => {
                 this.handleAcceptInvite(data.player);
+            });
+        }
+
+        for (const command of this.options.commands_to_check) {
+            this.server.on(`CHAT_COMMAND:${command}`, (data) => {
+                this.handleCheckTime(data.player);
             });
         }
 
@@ -129,7 +146,8 @@ export default class RallyTimer extends BasePlugin {
                         timeBeforeSpawn = customTimeBeforeSpawn;
                     }
 
-                    const firstMessageDelay = rallyTime > timeBeforeSpawn ? (rallyTime - timeBeforeSpawn) * 1000 : (60 - timeBeforeSpawn + rallyTime) * 1000;
+                    const cycleSeconds = this.getRallyIntervalSeconds();
+                    const firstMessageDelay = rallyTime > timeBeforeSpawn ? (rallyTime - timeBeforeSpawn) * 1000 : (cycleSeconds - timeBeforeSpawn + rallyTime) * 1000;
 
                     this.activateIntervalMessagesAboutRally(firstMessageDelay, data.player, timeBeforeSpawn);
 
@@ -156,6 +174,7 @@ export default class RallyTimer extends BasePlugin {
             clearTimeout(this.playerTimer.get(steamID));
             this.playerTimer.delete(steamID);
             this.rallyTimerPaused.delete(steamID);
+            this.nextSpawnAt.delete(steamID);
             this.warn(steamID, "Stopped sending rally reminders");
         }
     }
@@ -171,7 +190,7 @@ export default class RallyTimer extends BasePlugin {
         if (pauseData.lastTickAt) {
             const timeSinceLastTick = (Date.now() - pauseData.lastTickAt) / 1000;
             let timeUntilSpawn = Math.round(pauseData.timeBeforeSpawn - timeSinceLastTick);
-            if (timeUntilSpawn < 0) timeUntilSpawn += 60;
+            if (timeUntilSpawn < 0) timeUntilSpawn += this.getRallyIntervalSeconds();
             this.warn(steamID, `Rally spawn in ~${timeUntilSpawn} seconds!`);
         }
     }
@@ -209,6 +228,7 @@ export default class RallyTimer extends BasePlugin {
         this.playerTimer.clear();
         this.rallyTimerPaused.clear();
         this.pendingSquadInvites.clear();
+        this.nextSpawnAt.clear();
     }
 
     handleSquadRally(initiator, rallyTime) {
@@ -222,11 +242,12 @@ export default class RallyTimer extends BasePlugin {
         this.rallyTimerPaused.delete(initiator.steamID);
 
         const timeBeforeSpawn = this.options.time_before_spawn;
-        const firstMessageDelay = rallyTime > timeBeforeSpawn ? (rallyTime - timeBeforeSpawn) * 1000 : (60 - timeBeforeSpawn + rallyTime) * 1000;
+        const cycleSeconds = this.getRallyIntervalSeconds();
+        const firstMessageDelay = rallyTime > timeBeforeSpawn ? (rallyTime - timeBeforeSpawn) * 1000 : (cycleSeconds - timeBeforeSpawn + rallyTime) * 1000;
 
         this.activateIntervalMessagesAboutRally(firstMessageDelay, initiator, timeBeforeSpawn);
 
-        // Anchor for syncing squad members to the same 60s reminder cycle
+        // Anchor for syncing squad members to the same reminder cycle
         const cycleAnchor = Date.now() + firstMessageDelay;
 
         // Find squad members (excluding initiator)
@@ -275,17 +296,17 @@ export default class RallyTimer extends BasePlugin {
         clearTimeout(this.playerTimer.get(player.steamID));
         this.rallyTimerPaused.delete(player.steamID);
 
-        // Sync to the initiator's 60s reminder cycle
+        // Sync to the initiator's reminder cycle
         const now = Date.now();
         const elapsed = now - invite.cycleAnchor;
-        const cycleMs = 60 * 1000;
+        const cycleMs = this.getRallyIntervalSeconds() * 1000;
         let syncedDelay;
 
         if (elapsed < 0) {
             // First reminder hasn't fired yet
             syncedDelay = -elapsed;
         } else {
-            // Align to the next tick in the 60s cycle
+            // Align to the next tick in the reminder cycle
             syncedDelay = cycleMs - (elapsed % cycleMs);
         }
 
@@ -313,16 +334,22 @@ export default class RallyTimer extends BasePlugin {
         // Start in alive/suppressed state — messages only sent when wounded
         this.rallyTimerPaused.set(player.steamID, {});
 
+        this.nextSpawnAt.set(player.steamID, Date.now() + delay + timeBeforeSpawn * 1000);
+
         this.playerTimer.set(player.steamID, setTimeout(() => {
             this.sendMessageAboutRally(player.steamID, timeBeforeSpawn);
 
-            const intervalId = setInterval(() => this.sendMessageAboutRally(player.steamID, timeBeforeSpawn), 60 * 1000);
+            const intervalId = setInterval(() => this.sendMessageAboutRally(player.steamID, timeBeforeSpawn), this.getRallyIntervalSeconds() * 1000);
 
             this.playerTimer.set(player.steamID, intervalId);
         }, delay));
     }
 
     async sendMessageAboutRally(steamID, timeBeforeSpawn) {
+        // Update next spawn timestamp on every tick, regardless of pause state,
+        // so that the check command stays accurate.
+        this.nextSpawnAt.set(steamID, Date.now() + timeBeforeSpawn * 1000);
+
         // Do not send message if alive (paused), but track timing so wound event can show time until spawn
         const pauseData = this.rallyTimerPaused.get(steamID);
         if (pauseData) {
@@ -350,6 +377,46 @@ export default class RallyTimer extends BasePlugin {
 
     getCommandStopPrefixString() {
         return '!' + this.options.commands_to_stop.join(', !');
+    }
+
+    handleCheckTime(player) {
+        if (!player) return;
+
+        const steamID = player.steamID;
+        if (!this.playerTimer.has(steamID) || !this.nextSpawnAt.has(steamID)) {
+            this.warn(steamID, "You don't have an active rally timer. Start one with: !rally <seconds>");
+            return;
+        }
+
+        const nextSpawnAt = this.nextSpawnAt.get(steamID);
+        let secondsLeft = Math.round((nextSpawnAt - Date.now()) / 1000);
+
+        // Gracefully handle a just-passed spawn by advancing in cycle-length steps.
+        const cycleSeconds = this.getRallyIntervalSeconds();
+        while (secondsLeft <= 0) {
+            secondsLeft += cycleSeconds;
+        }
+
+        this.warn(steamID, `Next rally spawn in ~${secondsLeft} seconds.`);
+    }
+
+    getRallyIntervalSeconds() {
+        const configured = this.options.rally_interval_seconds;
+        if (typeof configured === "number" && configured > 0) {
+            return configured;
+        }
+
+        const layer = this.server?.currentLayer;
+        if (layer) {
+            const candidates = [layer.layerid, layer.classname, layer.name];
+            for (const candidate of candidates) {
+                if (typeof candidate === "string" && candidate.length > 0) {
+                    return candidate.startsWith("SU_") ? 45 : 60;
+                }
+            }
+        }
+
+        return 60;
     }
 
 }
