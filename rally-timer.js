@@ -11,26 +11,22 @@ export default class RallyTimer extends BasePlugin {
 
     static get optionsSpecification() {
         return {
-            commands_to_start: {
+            commands: {
                 required: false,
-                description: "List of commands. 'rally' is always added to the list of commands to start the timer",
-                default: ["r", "rly", "raly"],
-            }, commands_to_stop: {
-                required: false,
-                description: "List of commands to start the rally timer (the first entry is used in the reminder message as a note!)",
-                default: ["sr", "stop", "rs", "rts"],
-            }, commands_to_pause: {
-                required: false,
-                description: "List of commands to pause the rally timer (the first entry is used in the reminder message as a note!)",
-                default: ["pr", "pause", "rp", "rtp"],
+                description: "Chat commands (without the ! prefix) that open the rally menu, e.g. !rally, !r. The first entry is used as the primary command in help/reminder text.",
+                default: ["rally", "r", "rly"],
             }, time_before_spawn: {
-                required: false, description: "Default time before spawn at rally point", default: 20,
-            }, commands_to_accept_squad: {
                 required: false,
-                description: "List of dedicated commands to accept a squad rally invitation",
-                default: ["rtyes"],
+                description: "Default seconds before the modeled spawn at which the reminder fires (overridable per command, e.g. !rally 30 25).",
+                default: 20,
             }, max_time: {
-                required: false, description: "Maximum timer time in minutes", default: 120
+                required: false,
+                description: "Maximum accepted rally-time argument, in seconds.",
+                default: 120,
+            }, rally_interval_seconds: {
+                required: false,
+                description: "Rally spawn cycle length in seconds. Leave unset to auto-detect (60s vanilla, 45s on SuperMod layers prefixed with SU_).",
+                default: null,
             },
         };
     }
@@ -38,139 +34,155 @@ export default class RallyTimer extends BasePlugin {
     constructor(server, options, connectors) {
         super(server, options, connectors);
 
-        this.playerTimer = new Map();
-        this.rallyTimerPaused = new Map();
-        this.optedOutPlayers = new Set();
-        this.pendingSquadInvites = new Map();
+        this.playerTimer = new Map();          // steamID -> timeout/interval id
+        this.downedPlayers = new Set();        // steamIDs currently wounded-but-not-dead
+        this.optedOutPlayers = new Set();      // steamIDs opted out of squad invites
+        this.pendingSquadInvites = new Map();  // steamID -> { timeBeforeSpawn, initiatorName, cycleAnchor }
+        this.nextSpawnAt = new Map();          // steamID -> timestamp of next modeled spawn
 
-        this.warn = this.warn.bind(this);
-        this.startIntervalMessages = this.startIntervalMessages.bind(this);
-        this.stopIntervalMessages = this.stopIntervalMessages.bind(this);
+        // Primary command word, used in all help/reminder text.
+        this.command = this.options.commands?.[0] || "rally";
+
+        // Only listener-registered handlers need binding (so unmount can remove them by reference).
+        this.onRallyCommand = this.onRallyCommand.bind(this);
+        this.onPlayerWounded = this.onPlayerWounded.bind(this);
+        this.onPlayerDied = this.onPlayerDied.bind(this);
+        this.onPlayerRevived = this.onPlayerRevived.bind(this);
+        this.reconcileDownedPlayers = this.reconcileDownedPlayers.bind(this);
         this.clearAllTimeouts = this.clearAllTimeouts.bind(this);
-        this.activateIntervalMessagesAboutRally = this.activateIntervalMessagesAboutRally.bind(this);
-        this.sendMessageAboutRally = this.sendMessageAboutRally.bind(this);
-        this.handleSquadRally = this.handleSquadRally.bind(this);
-        this.handleAcceptInvite = this.handleAcceptInvite.bind(this);
-        this.handleOptOut = this.handleOptOut.bind(this);
+        this.warn = this.warn.bind(this);
     }
 
     async mount() {
-        let commandsToStart = this.options.commands_to_start;
-        commandsToStart.push('rally');
-        for (const command of commandsToStart) {
-            this.server.on(`CHAT_COMMAND:${command}`, (data) => {
-                this.startIntervalMessages(data);
-            });
+        for (const command of this.options.commands) {
+            this.server.on(`CHAT_COMMAND:${command}`, this.onRallyCommand);
         }
-
-        for (const command of this.options.commands_to_stop) {
-            this.server.on(`CHAT_COMMAND:${command}`, (data) => {
-                this.stopIntervalMessages(data.player.steamID);
-            });
-        }
-
-        for (const command of this.options.commands_to_pause) {
-            this.server.on(`CHAT_COMMAND:${command}`, (data) => {
-                this.togglePauseIntervalMessages(data.player.steamID);
-            });
-        }
-
-        for (const command of this.options.commands_to_accept_squad) {
-            this.server.on(`CHAT_COMMAND:${command}`, (data) => {
-                this.handleAcceptInvite(data.player);
-            });
-        }
-
-        this.server.on("ROUND_ENDED", () => {
-            this.clearAllTimeouts();
-        });
+        this.server.on("PLAYER_WOUNDED", this.onPlayerWounded);
+        this.server.on("TEAMKILL", this.onPlayerWounded);
+        this.server.on("PLAYER_DIED", this.onPlayerDied);
+        this.server.on("PLAYER_REVIVED", this.onPlayerRevived);
+        this.server.on("UPDATED_PLAYER_INFORMATION", this.reconcileDownedPlayers);
+        this.server.on("ROUND_ENDED", this.clearAllTimeouts);
     }
 
-    async startIntervalMessages(data) {
-        if (data.player) {
-            const message = data.message.toLowerCase();
-
-            // split by spaces and remove empty entries
-            const commandSplit = message.trim().split(/\s+/).filter(Boolean);
-
-            // Handle squad invite accept
-            if (commandSplit[0] === "yes") {
-                this.handleAcceptInvite(data.player);
-                return;
-            }
-
-            // Handle squad invite opt-out
-            if (commandSplit[0] === "optout") {
-                this.handleOptOut(data.player);
-                return;
-            }
-
-            // Set new timer
-            let isTimerSet = false;
-            if (commandSplit.length > 0) {
-                const rallyTime = parseInt(commandSplit[0]);
-                if (rallyTime && rallyTime > 0 && rallyTime <= this.options.max_time) {
-
-                    // Check if second param is squad mode
-                    const secondParam = commandSplit[1];
-                    if (secondParam && (secondParam === "sq" || secondParam === "squad")) {
-                        this.handleSquadRally(data.player, rallyTime);
-                        return;
-                    }
-
-                    // clear old timeout
-                    clearTimeout(this.playerTimer.get(data.player.steamID));
-                    this.rallyTimerPaused.delete(data.player.steamID);
-
-                    let timeBeforeSpawn = this.options.time_before_spawn;
-                    const customTimeBeforeSpawn = parseInt(secondParam);
-                    if (customTimeBeforeSpawn && customTimeBeforeSpawn > 0) {
-                        timeBeforeSpawn = customTimeBeforeSpawn;
-                    }
-
-                    const firstMessageDelay = rallyTime > timeBeforeSpawn ? (rallyTime - timeBeforeSpawn) * 1000 : (60 - timeBeforeSpawn + rallyTime) * 1000;
-
-                    this.activateIntervalMessagesAboutRally(firstMessageDelay, data.player, timeBeforeSpawn);
-
-                    isTimerSet = true;
-                }
-            }
-
-            // Toggle timer, if command used without time and timer is already set
-            if (!isTimerSet && this.playerTimer.has(data.player.steamID)) {
-                this.togglePauseIntervalMessages(data.player.steamID);
-                return;
-            }
-
-            if (!isTimerSet) {
-                this.warn(data.player.steamID, `Enter the CURRENT rally time (from 0 to ${this.options.max_time})\n\nFor example:\nTimer shows 30 seconds, then: !rally 30\nSquad rally: !rally 30 sq`);
-                await new Promise((resolve) => setTimeout(resolve, 6 * 1000));
-                this.warn(data.player.steamID, `Custom reminder time. For example:\n!rally 30 25\nThis will set a reminder 25 seconds before spawn.`);
-            }
+    async unmount() {
+        for (const command of this.options.commands) {
+            this.server.removeListener(`CHAT_COMMAND:${command}`, this.onRallyCommand);
         }
+        this.server.removeListener("PLAYER_WOUNDED", this.onPlayerWounded);
+        this.server.removeListener("TEAMKILL", this.onPlayerWounded);
+        this.server.removeListener("PLAYER_DIED", this.onPlayerDied);
+        this.server.removeListener("PLAYER_REVIVED", this.onPlayerRevived);
+        this.server.removeListener("UPDATED_PLAYER_INFORMATION", this.reconcileDownedPlayers);
+        this.server.removeListener("ROUND_ENDED", this.clearAllTimeouts);
+        this.clearAllTimeouts();
+    }
+
+    // Single entry point for every !rally variant.
+    async onRallyCommand(data) {
+        const player = data.player;
+        if (!player) return;
+
+        const tokens = data.message.toLowerCase().trim().split(/\s+/).filter(Boolean);
+
+        // Bare "!rally" -> time until next spawn (doubles as help when no timer is set).
+        if (tokens.length === 0) {
+            this.handleCheckTime(player);
+            return;
+        }
+
+        const first = tokens[0];
+        if (first === "stop") {
+            this.stopIntervalMessages(player.steamID);
+            return;
+        }
+        if (first === "yes") {
+            this.handleAcceptInvite(player);
+            return;
+        }
+        if (first === "optout") {
+            this.handleOptOut(player);
+            return;
+        }
+
+        const rallyTime = parseInt(first, 10);
+        if (rallyTime > 0 && rallyTime <= this.options.max_time) {
+            const second = tokens[1];
+
+            if (second === "sq" || second === "squad") {
+                this.handleSquadRally(player, rallyTime);
+                return;
+            }
+
+            let timeBeforeSpawn = this.options.time_before_spawn;
+            const customLead = parseInt(second, 10);
+            if (customLead > 0) {
+                timeBeforeSpawn = customLead;
+            }
+
+            this.startTimer(player, rallyTime, timeBeforeSpawn);
+            return;
+        }
+
+        const c = this.command;
+        this.warn(player.steamID,
+            `Enter the CURRENT rally time in seconds.` +
+            `\n!${c} 30        start (timer shows 30s)` +
+            `\n!${c} 30 25     start, warn 25s before spawn` +
+            `\n!${c} 30 sq     squad rally (invite your squad)` +
+            `\n!${c}           time until next spawn` +
+            `\n!${c} stop      stop reminders`
+        );
+    }
+
+    // Arm a per-player reminder; returns the delay until the first reminder (used to sync squads).
+    startTimer(player, rallyTime, timeBeforeSpawn) {
+        clearTimeout(this.playerTimer.get(player.steamID));
+
+        const cycleSeconds = this.getRallyIntervalSeconds();
+        const firstMessageDelay = rallyTime > timeBeforeSpawn
+            ? (rallyTime - timeBeforeSpawn) * 1000
+            : (cycleSeconds - timeBeforeSpawn + rallyTime) * 1000;
+
+        this.activateIntervalMessagesAboutRally(firstMessageDelay, player, timeBeforeSpawn);
+        return firstMessageDelay;
     }
 
     stopIntervalMessages(steamID) {
-        if (steamID) {
-            clearTimeout(this.playerTimer.get(steamID));
-            this.playerTimer.delete(steamID);
-            this.rallyTimerPaused.delete(steamID);
-            this.warn(steamID, "Stopped sending rally reminders");
+        if (!steamID) return;
+        clearTimeout(this.playerTimer.get(steamID));
+        this.playerTimer.delete(steamID);
+        this.nextSpawnAt.delete(steamID);
+        this.warn(steamID, "Stopped sending rally reminders");
+    }
+
+    onPlayerWounded(data) {
+        const steamID = data.victim?.steamID;
+        if (!steamID) return;
+        this.downedPlayers.add(steamID);
+
+        // If they have a running reminder, show the countdown the instant they go down.
+        if (this.playerTimer.has(steamID) && this.nextSpawnAt.has(steamID)) {
+            this.warn(steamID, `Rally spawn in ~${this.secondsUntilSpawn(steamID)} seconds!`);
         }
     }
 
-    togglePauseIntervalMessages(steamID) {
-        // Resume from pause, if player has an active timer and paused the timer before
-        if (this.playerTimer.has(steamID) && this.rallyTimerPaused.has(steamID)) {
-            this.rallyTimerPaused.delete(steamID);
-            this.warn(steamID, `Rally reminder RESUMED.`);
-        }
-        // Pause the timer, if player has an active timer and did not pause the timer before
-        else if (this.playerTimer.has(steamID) && !this.rallyTimerPaused.has(steamID)) {
-            this.rallyTimerPaused.set(steamID, true);
-            this.warn(steamID, `Rally reminder PAUSED!\nTo resume, just use the command again.`);
-        } else {
-            this.warn(steamID, `You don't have an active rally reminder to pause or resume.`);
+    onPlayerDied(data) {
+        const steamID = data.victim?.steamID;
+        if (steamID) this.downedPlayers.delete(steamID);
+    }
+
+    onPlayerRevived(data) {
+        const steamID = data.victim?.steamID;
+        if (steamID) this.downedPlayers.delete(steamID);
+    }
+
+    // PLAYER_DISCONNECTED effectively never fires, so drop down-state for players who left.
+    reconcileDownedPlayers() {
+        if (this.downedPlayers.size === 0) return;
+        const present = new Set(this.server.players.map(p => p.steamID));
+        for (const steamID of this.downedPlayers) {
+            if (!present.has(steamID)) this.downedPlayers.delete(steamID);
         }
     }
 
@@ -179,8 +191,9 @@ export default class RallyTimer extends BasePlugin {
             clearTimeout(timeout);
         }
         this.playerTimer.clear();
-        this.rallyTimerPaused.clear();
+        this.downedPlayers.clear();
         this.pendingSquadInvites.clear();
+        this.nextSpawnAt.clear();
     }
 
     handleSquadRally(initiator, rallyTime) {
@@ -189,31 +202,20 @@ export default class RallyTimer extends BasePlugin {
             return;
         }
 
-        // Start timer for the initiator
-        clearTimeout(this.playerTimer.get(initiator.steamID));
-        this.rallyTimerPaused.delete(initiator.steamID);
-
         const timeBeforeSpawn = this.options.time_before_spawn;
-        const firstMessageDelay = rallyTime > timeBeforeSpawn ? (rallyTime - timeBeforeSpawn) * 1000 : (60 - timeBeforeSpawn + rallyTime) * 1000;
+        const firstMessageDelay = this.startTimer(initiator, rallyTime, timeBeforeSpawn);
 
-        this.activateIntervalMessagesAboutRally(firstMessageDelay, initiator, timeBeforeSpawn);
-
-        // Anchor for syncing squad members to the same 60s reminder cycle
+        // Anchor for syncing squad members to the same reminder cycle.
         const cycleAnchor = Date.now() + firstMessageDelay;
 
-        // Find squad members (excluding initiator)
+        // Same squad + same team, excluding the initiator.
         const squadMembers = this.server.players.filter(
             p => p.squadID === initiator.squadID && p.teamID === initiator.teamID && p.steamID !== initiator.steamID
         );
 
         let invitedCount = 0;
-        const commandAcceptPrefix = '!' + this.options.commands_to_accept_squad[0];
-        const commandStartPrefix = '!' + this.options.commands_to_start[0];
-
         for (const member of squadMembers) {
-            if (this.optedOutPlayers.has(member.steamID)) {
-                continue;
-            }
+            if (this.optedOutPlayers.has(member.steamID)) continue;
 
             this.pendingSquadInvites.set(member.steamID, {
                 timeBeforeSpawn,
@@ -223,8 +225,8 @@ export default class RallyTimer extends BasePlugin {
 
             this.warn(member.steamID,
                 `${initiator.name} started a squad rally timer!` +
-                `\nAccept: ${commandStartPrefix} yes or ${commandAcceptPrefix}` +
-                `\nOpt out (no invites): ${commandStartPrefix} optout`
+                `\nAccept: !${this.command} yes` +
+                `\nOpt out (no invites): !${this.command} optout`
             );
             invitedCount++;
         }
@@ -243,23 +245,12 @@ export default class RallyTimer extends BasePlugin {
 
         this.pendingSquadInvites.delete(player.steamID);
 
-        // Clear any existing timer
         clearTimeout(this.playerTimer.get(player.steamID));
-        this.rallyTimerPaused.delete(player.steamID);
 
-        // Sync to the initiator's 60s reminder cycle
-        const now = Date.now();
-        const elapsed = now - invite.cycleAnchor;
-        const cycleMs = 60 * 1000;
-        let syncedDelay;
-
-        if (elapsed < 0) {
-            // First reminder hasn't fired yet
-            syncedDelay = -elapsed;
-        } else {
-            // Align to the next tick in the 60s cycle
-            syncedDelay = cycleMs - (elapsed % cycleMs);
-        }
+        // Sync to the initiator's reminder cycle.
+        const elapsed = Date.now() - invite.cycleAnchor;
+        const cycleMs = this.getRallyIntervalSeconds() * 1000;
+        const syncedDelay = elapsed < 0 ? -elapsed : cycleMs - (elapsed % cycleMs);
 
         this.activateIntervalMessagesAboutRally(syncedDelay, player, invite.timeBeforeSpawn);
     }
@@ -273,40 +264,42 @@ export default class RallyTimer extends BasePlugin {
     }
 
     activateIntervalMessagesAboutRally(delay, player, timeBeforeSpawn) {
-        let commandPausePrefix = this.getCommandPausePrefixString();
-        let commandStopPrefix = this.getCommandStopPrefixString();
-
         this.warn(
             player.steamID,
-            `Get a reminder ${timeBeforeSpawn} seconds before spawn at the rally.
-            \nPAUSE with: ${commandPausePrefix}
-            \nSTOP with: ${commandStopPrefix}`
+            `Rally reminder active (${timeBeforeSpawn}s before spawn).` +
+            `\nWarnings appear when you're wounded.` +
+            `\nStop with: !${this.command} stop`
         );
+
+        this.nextSpawnAt.set(player.steamID, Date.now() + delay + timeBeforeSpawn * 1000);
 
         this.playerTimer.set(player.steamID, setTimeout(() => {
             this.sendMessageAboutRally(player.steamID, timeBeforeSpawn);
 
-            const intervalId = setInterval(() => this.sendMessageAboutRally(player.steamID, timeBeforeSpawn), 60 * 1000);
+            const intervalId = setInterval(
+                () => this.sendMessageAboutRally(player.steamID, timeBeforeSpawn),
+                this.getRallyIntervalSeconds() * 1000
+            );
 
             this.playerTimer.set(player.steamID, intervalId);
         }, delay));
     }
 
     async sendMessageAboutRally(steamID, timeBeforeSpawn) {
-        // Do not send message if paused
-        if (this.rallyTimerPaused.get(steamID)) {
-            return;
-        }
+        // Refresh the modeled spawn time every tick so !rally stays accurate,
+        // regardless of whether we actually warn this tick.
+        this.nextSpawnAt.set(steamID, Date.now() + timeBeforeSpawn * 1000);
 
-        await this.warn(
-            steamID,
-            `Rally spawn in ${timeBeforeSpawn} seconds! (!` + this.options.commands_to_stop[0] + ` or !` + this.options.commands_to_pause[0] + `)`
-        );
+        // Only warn players who are currently down AND still on the server.
+        if (!this.downedPlayers.has(steamID)) return;
+        if (!this.server.players.some(p => p.steamID === steamID)) return;
+
+        await this.warn(steamID, `Rally spawn in ${timeBeforeSpawn} seconds! (!${this.command} stop to stop)`);
     }
 
     async warn(playerID, message, repeat = 1, frequency = 5) {
         for (let i = 0; i < repeat; i++) {
-            // repeat is used so that squad displays all messages and does not hide them just because they are identical.
+            // repeat is used so the client shows all messages instead of hiding identical ones.
             await this.server.rcon.warn(playerID, message + "\u{00A0}".repeat(i));
 
             if (i !== repeat - 1) {
@@ -315,11 +308,45 @@ export default class RallyTimer extends BasePlugin {
         }
     }
 
-    getCommandStopPrefixString() {
-        return '!' + this.options.commands_to_stop.join(', !');
+    handleCheckTime(player) {
+        if (!player) return;
+
+        const steamID = player.steamID;
+        if (!this.playerTimer.has(steamID) || !this.nextSpawnAt.has(steamID)) {
+            this.warn(steamID, `You don't have an active rally timer. Start one with: !${this.command} <seconds>`);
+            return;
+        }
+
+        this.warn(steamID, `Next rally spawn in ~${this.secondsUntilSpawn(steamID)} seconds.`);
     }
 
-    getCommandPausePrefixString() {
-        return '!' + this.options.commands_to_pause.join(', !');
+    // Estimated seconds until the next modeled spawn; advances by whole cycles if just passed.
+    secondsUntilSpawn(steamID) {
+        let secondsLeft = Math.round((this.nextSpawnAt.get(steamID) - Date.now()) / 1000);
+        const cycleSeconds = this.getRallyIntervalSeconds();
+        while (secondsLeft <= 0) {
+            secondsLeft += cycleSeconds;
+        }
+        return secondsLeft;
     }
+
+    getRallyIntervalSeconds() {
+        const configured = this.options.rally_interval_seconds;
+        if (typeof configured === "number" && configured > 0) {
+            return configured;
+        }
+
+        const layer = this.server?.currentLayer;
+        if (layer) {
+            const candidates = [layer.layerid, layer.classname, layer.name];
+            for (const candidate of candidates) {
+                if (typeof candidate === "string" && candidate.length > 0) {
+                    return candidate.startsWith("SU_") ? 45 : 60;
+                }
+            }
+        }
+
+        return 60;
+    }
+
 }
